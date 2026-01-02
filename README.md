@@ -74,14 +74,6 @@ The entire game is contained in one file (~380 lines) for simplicity and readabi
 3. **Collision Detection**: Checks for wall and self-collision each tick
 4. **Rendering**: Redraws the entire game state each frame using ratatui's immediate mode rendering
 
-## License
-
-MIT
-
-## Contributing
-
-PRs welcome! Some ideas for improvements:
-
 - [ ] Add arrow key support
 - [ ] High score persistence
 - [ ] Pause functionality
