@@ -18,7 +18,7 @@ A classic Snake game that runs in your terminal, built with Rust using `ratatui`
 
 ```bash
 git clone https://github.com/Vadym-Lopatka/terminal-snake.git
-cd snaker
+cd terminal-snake
 cargo run --release
 ```
 
