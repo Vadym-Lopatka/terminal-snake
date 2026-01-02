@@ -75,7 +75,7 @@ The entire game is contained in one file (~380 lines) for simplicity and readabi
 4. **Rendering**: Redraws the entire game state each frame using ratatui's immediate mode rendering
 
 ## Next steps
--
+
 - [ ] Add arrow key support
 - [ ] High score persistence
 - [ ] Pause functionality
