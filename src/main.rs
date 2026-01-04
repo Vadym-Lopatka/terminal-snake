@@ -43,7 +43,7 @@ struct Position {
     y: i16,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Direction {
     Up,
     Down,
@@ -185,6 +185,33 @@ impl Game {
         let tick_ms = BASE_TICK_MS.saturating_sub(speed_reduction).max(MIN_TICK_MS);
         Duration::from_millis(tick_ms)
     }
+
+    fn restart(&mut self) {
+        let center_x = self.grid_width as i16 / 2;
+        let center_y = self.grid_height as i16 / 2;
+
+        // Reset snake to initial position
+        self.snake.clear();
+        for i in 0..INITIAL_SNAKE_LENGTH {
+            self.snake.push_back(Position {
+                x: center_x - i as i16,
+                y: center_y,
+            });
+        }
+
+        // Reset game state
+        self.direction = Direction::Right;
+        self.next_direction = Direction::Right;
+        self.score = 0;
+        self.state = GameState::Playing;
+
+        // Spawn new food
+        self.spawn_food();
+    }
+
+    fn is_game_over(&self) -> bool {
+        matches!(self.state, GameState::GameOver)
+    }
 }
 
 // ============================================================================
@@ -282,7 +309,7 @@ fn render_game_over(frame: &mut Frame, game: &Game, area: Rect) {
         Line::from(format!("Final Score: {}", game.score)),
         Line::from(""),
         Line::from(Span::styled(
-            "Press ESC to quit",
+            "Press R to restart | ESC to quit",
             Style::default().fg(Color::DarkGray),
         )),
     ];
@@ -296,7 +323,7 @@ fn render_game_over(frame: &mut Frame, game: &Game, area: Rect) {
                 .title_alignment(Alignment::Center),
         );
 
-    let popup_area = centered_rect(30, 10, area);
+    let popup_area = centered_rect(36, 10, area);
     frame.render_widget(paragraph, popup_area);
 }
 
@@ -350,6 +377,10 @@ fn main() -> io::Result<()> {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Esc => break,
+                        KeyCode::Char('r') | KeyCode::Char('R') if game.is_game_over() => {
+                            game.restart();
+                            last_tick = Instant::now();
+                        }
                         KeyCode::Char('w') | KeyCode::Char('W') => {
                             game.change_direction(Direction::Up);
                         }
@@ -380,4 +411,108 @@ fn main() -> io::Result<()> {
     stdout().execute(LeaveAlternateScreen)?;
 
     Ok(())
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_restart_resets_score() {
+        let mut game = Game::new(10, 10);
+        game.score = 5;
+        game.state = GameState::GameOver;
+
+        game.restart();
+
+        assert_eq!(game.score, 0);
+    }
+
+    #[test]
+    fn test_restart_resets_state_to_playing() {
+        let mut game = Game::new(10, 10);
+        game.state = GameState::GameOver;
+
+        game.restart();
+
+        assert!(matches!(game.state, GameState::Playing));
+    }
+
+    #[test]
+    fn test_restart_resets_snake_length() {
+        let mut game = Game::new(10, 10);
+        // Simulate snake growth
+        game.snake.push_front(Position { x: 0, y: 0 });
+        game.snake.push_front(Position { x: 1, y: 0 });
+        game.state = GameState::GameOver;
+
+        game.restart();
+
+        assert_eq!(game.snake.len(), INITIAL_SNAKE_LENGTH);
+    }
+
+    #[test]
+    fn test_restart_resets_snake_position_to_center() {
+        let mut game = Game::new(10, 10);
+        game.state = GameState::GameOver;
+
+        game.restart();
+
+        let head = game.snake.front().unwrap();
+        assert_eq!(head.x, 5); // center of 10-width grid
+        assert_eq!(head.y, 5); // center of 10-height grid
+    }
+
+    #[test]
+    fn test_restart_resets_direction() {
+        let mut game = Game::new(10, 10);
+        game.direction = Direction::Up;
+        game.next_direction = Direction::Left;
+        game.state = GameState::GameOver;
+
+        game.restart();
+
+        assert_eq!(game.direction, Direction::Right);
+        assert_eq!(game.next_direction, Direction::Right);
+    }
+
+    #[test]
+    fn test_is_game_over_returns_true_when_game_over() {
+        let mut game = Game::new(10, 10);
+        game.state = GameState::GameOver;
+
+        assert!(game.is_game_over());
+    }
+
+    #[test]
+    fn test_is_game_over_returns_false_when_playing() {
+        let game = Game::new(10, 10);
+
+        assert!(!game.is_game_over());
+    }
+
+    #[test]
+    fn test_restart_spawns_food_on_grid() {
+        let mut game = Game::new(10, 10);
+        game.state = GameState::GameOver;
+
+        game.restart();
+
+        assert!(game.food.x >= 0 && game.food.x < 10);
+        assert!(game.food.y >= 0 && game.food.y < 10);
+    }
+
+    #[test]
+    fn test_restart_food_not_on_snake() {
+        let mut game = Game::new(10, 10);
+        game.state = GameState::GameOver;
+
+        game.restart();
+
+        assert!(!game.snake.contains(&game.food));
+    }
 }
