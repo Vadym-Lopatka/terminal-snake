@@ -14,3 +14,4 @@
 # Cargo.lock should be ignored for libraries, but committed for binaries (applications)
 # If you are building a library, you can uncomment the following line:
 # Cargo.lock
+highestscore.txt

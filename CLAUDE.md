@@ -33,3 +33,8 @@ This is a single-file Rust terminal snake game (~380 lines in `src/main.rs`).
 - `SPEED_INCREASE_PER_FOOD`: Difficulty progression
 
 **Dependencies:** ratatui (TUI framework), crossterm (terminal handling), rand (food spawning)
+
+
+## Development workflow
+
+Do not add Claude as co-author to commit messages

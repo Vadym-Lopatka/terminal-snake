@@ -14,7 +14,9 @@ use ratatui::{
 };
 use std::{
     collections::VecDeque,
+    fs,
     io::{self, stdout},
+    path::Path,
     time::{Duration, Instant},
 };
 
@@ -32,6 +34,9 @@ const SPEED_INCREASE_PER_FOOD: u64 = 5;
 // Symbols
 const SNAKE_BODY: &str = "●";
 const FOOD_SYMBOL: &str = "●";
+
+// High score file
+const HIGH_SCORE_FILE: &str = "highestscore.txt";
 
 // ============================================================================
 // Types
@@ -67,12 +72,28 @@ enum GameState {
     GameOver,
 }
 
+// ============================================================================
+// High Score Persistence
+// ============================================================================
+
+fn load_high_score(path: &Path) -> u32 {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+fn save_high_score(path: &Path, score: u32) {
+    let _ = fs::write(path, score.to_string());
+}
+
 struct Game {
     snake: VecDeque<Position>,
     direction: Direction,
     next_direction: Direction,
     food: Position,
     score: u32,
+    high_score: u32,
     state: GameState,
     grid_width: u16,
     grid_height: u16,
@@ -83,7 +104,7 @@ struct Game {
 // ============================================================================
 
 impl Game {
-    fn new(grid_width: u16, grid_height: u16) -> Self {
+    fn new(grid_width: u16, grid_height: u16, high_score: u32) -> Self {
         let center_x = grid_width as i16 / 2;
         let center_y = grid_height as i16 / 2;
 
@@ -102,6 +123,7 @@ impl Game {
             next_direction: Direction::Right,
             food: Position { x: 0, y: 0 },
             score: 0,
+            high_score,
             state: GameState::Playing,
             grid_width,
             grid_height,
@@ -150,13 +172,13 @@ impl Game {
             || new_head.y < 0
             || new_head.y >= self.grid_height as i16
         {
-            self.state = GameState::GameOver;
+            self.end_game();
             return;
         }
 
         // Check self collision
         if self.snake.contains(&new_head) {
-            self.state = GameState::GameOver;
+            self.end_game();
             return;
         }
 
@@ -211,6 +233,13 @@ impl Game {
 
     fn is_game_over(&self) -> bool {
         matches!(self.state, GameState::GameOver)
+    }
+
+    fn end_game(&mut self) {
+        if self.score > self.high_score {
+            self.high_score = self.score;
+        }
+        self.state = GameState::GameOver;
     }
 }
 
@@ -306,7 +335,14 @@ fn render_game_over(frame: &mut Frame, game: &Game, area: Rect) {
             Style::default().fg(Color::Red),
         )),
         Line::from(""),
-        Line::from(format!("Final Score: {}", game.score)),
+        Line::from(vec![
+            Span::styled("Highest Score: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("{}", game.high_score), Style::default().fg(Color::DarkGray)),
+        ]),
+        Line::from(vec![
+            Span::styled("Your Score: ", Style::default().fg(Color::White)),
+            Span::styled(format!("{}", game.score), Style::default().fg(Color::White)),
+        ]),
         Line::from(""),
         Line::from(Span::styled(
             "Press R to restart | ESC to quit",
@@ -323,7 +359,7 @@ fn render_game_over(frame: &mut Frame, game: &Game, area: Rect) {
                 .title_alignment(Alignment::Center),
         );
 
-    let popup_area = centered_rect(36, 10, area);
+    let popup_area = centered_rect(36, 11, area);
     frame.render_widget(paragraph, popup_area);
 }
 
@@ -356,14 +392,23 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
 
-    // Create game
-    let mut game = Game::new(GRID_WIDTH, GRID_HEIGHT);
+    // Load high score and create game
+    let high_score_path = Path::new(HIGH_SCORE_FILE);
+    let high_score = load_high_score(high_score_path);
+    let mut game = Game::new(GRID_WIDTH, GRID_HEIGHT, high_score);
     let mut last_tick = Instant::now();
+    let mut was_playing = true;
 
     // Main loop
     loop {
         // Render
         terminal.draw(|frame| render(frame, &game))?;
+
+        // Save high score when game ends
+        if was_playing && game.is_game_over() {
+            save_high_score(high_score_path, game.high_score);
+            was_playing = false;
+        }
 
         // Calculate time until next tick
         let tick_duration = game.tick_duration();
@@ -380,6 +425,7 @@ fn main() -> io::Result<()> {
                         KeyCode::Char('r') | KeyCode::Char('R') if game.is_game_over() => {
                             game.restart();
                             last_tick = Instant::now();
+                            was_playing = true;
                         }
                         KeyCode::Char('w') | KeyCode::Char('W') => {
                             game.change_direction(Direction::Up);
@@ -423,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_restart_resets_score() {
-        let mut game = Game::new(10, 10);
+        let mut game = Game::new(10, 10, 0);
         game.score = 5;
         game.state = GameState::GameOver;
 
@@ -434,7 +480,7 @@ mod tests {
 
     #[test]
     fn test_restart_resets_state_to_playing() {
-        let mut game = Game::new(10, 10);
+        let mut game = Game::new(10, 10, 0);
         game.state = GameState::GameOver;
 
         game.restart();
@@ -444,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_restart_resets_snake_length() {
-        let mut game = Game::new(10, 10);
+        let mut game = Game::new(10, 10, 0);
         // Simulate snake growth
         game.snake.push_front(Position { x: 0, y: 0 });
         game.snake.push_front(Position { x: 1, y: 0 });
@@ -457,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_restart_resets_snake_position_to_center() {
-        let mut game = Game::new(10, 10);
+        let mut game = Game::new(10, 10, 0);
         game.state = GameState::GameOver;
 
         game.restart();
@@ -469,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_restart_resets_direction() {
-        let mut game = Game::new(10, 10);
+        let mut game = Game::new(10, 10, 0);
         game.direction = Direction::Up;
         game.next_direction = Direction::Left;
         game.state = GameState::GameOver;
@@ -482,7 +528,7 @@ mod tests {
 
     #[test]
     fn test_is_game_over_returns_true_when_game_over() {
-        let mut game = Game::new(10, 10);
+        let mut game = Game::new(10, 10, 0);
         game.state = GameState::GameOver;
 
         assert!(game.is_game_over());
@@ -490,14 +536,14 @@ mod tests {
 
     #[test]
     fn test_is_game_over_returns_false_when_playing() {
-        let game = Game::new(10, 10);
+        let game = Game::new(10, 10, 0);
 
         assert!(!game.is_game_over());
     }
 
     #[test]
     fn test_restart_spawns_food_on_grid() {
-        let mut game = Game::new(10, 10);
+        let mut game = Game::new(10, 10, 0);
         game.state = GameState::GameOver;
 
         game.restart();
@@ -508,11 +554,90 @@ mod tests {
 
     #[test]
     fn test_restart_food_not_on_snake() {
-        let mut game = Game::new(10, 10);
+        let mut game = Game::new(10, 10, 0);
         game.state = GameState::GameOver;
 
         game.restart();
 
         assert!(!game.snake.contains(&game.food));
+    }
+
+    #[test]
+    fn test_game_initializes_with_high_score() {
+        let game = Game::new(10, 10, 42);
+
+        assert_eq!(game.high_score, 42);
+    }
+
+    #[test]
+    fn test_end_game_updates_high_score_when_score_is_higher() {
+        let mut game = Game::new(10, 10, 5);
+        game.score = 10;
+
+        game.end_game();
+
+        assert_eq!(game.high_score, 10);
+        assert!(game.is_game_over());
+    }
+
+    #[test]
+    fn test_end_game_keeps_high_score_when_score_is_lower() {
+        let mut game = Game::new(10, 10, 10);
+        game.score = 5;
+
+        game.end_game();
+
+        assert_eq!(game.high_score, 10);
+        assert!(game.is_game_over());
+    }
+
+    #[test]
+    fn test_end_game_keeps_high_score_when_score_is_equal() {
+        let mut game = Game::new(10, 10, 5);
+        game.score = 5;
+
+        game.end_game();
+
+        assert_eq!(game.high_score, 5);
+        assert!(game.is_game_over());
+    }
+
+    #[test]
+    fn test_restart_preserves_high_score() {
+        let mut game = Game::new(10, 10, 10);
+        game.score = 15;
+        game.end_game();
+
+        game.restart();
+
+        assert_eq!(game.high_score, 15);
+        assert_eq!(game.score, 0);
+    }
+
+    #[test]
+    fn test_load_high_score_returns_zero_for_missing_file() {
+        let path = Path::new("/nonexistent/path/highestscore.txt");
+
+        assert_eq!(load_high_score(path), 0);
+    }
+
+    #[test]
+    fn test_load_high_score_returns_zero_for_invalid_content() {
+        use std::io::Write;
+        let mut temp_file = tempfile::NamedTempFile::new().unwrap();
+        write!(temp_file, "not_a_number").unwrap();
+
+        assert_eq!(load_high_score(temp_file.path()), 0);
+    }
+
+    #[test]
+    fn test_save_and_load_high_score() {
+        let temp_file = tempfile::NamedTempFile::new().unwrap();
+        let path = temp_file.path();
+
+        save_high_score(path, 42);
+        let loaded = load_high_score(path);
+
+        assert_eq!(loaded, 42);
     }
 }
